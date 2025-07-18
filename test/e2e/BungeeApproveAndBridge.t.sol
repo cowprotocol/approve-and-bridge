@@ -88,6 +88,10 @@ contract E2EBungeeApproveAndBridgeTest is Test {
         bytes memory extraData = abi.encode(inputAmountStartIndex, modifyOutputAmount, outputAmountStartIndex);
         bytes memory _calldata = abi.encodePacked(BungeeApiCalldata, extraData);
 
+        emit log_named_bytes("BungeeApiCalldata", BungeeApiCalldata);
+        emit log_named_bytes("extraData", extraData);
+        emit log_named_bytes("_calldata", _calldata);
+
         COWShed.Call[] memory calls = new COWShed.Call[](1);
         calls[0] = COWShed.Call({
             target: address(approveAndBridge),

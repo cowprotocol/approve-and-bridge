@@ -20,10 +20,15 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
 
     /// @dev routeIds on SocketGateway are 4 bytes
     uint8 private constant ROUTE_ID_BYTES_LENGTH = 4;
-    uint8 private constant EXTRA_DATA_PARAMS_COUNT = 3;
-    uint8 private constant EXTRA_DATA_LENGTH_BYTES = 32;
-    uint8 private constant EXTRA_DATA_LENGTH = EXTRA_DATA_PARAMS_COUNT * EXTRA_DATA_LENGTH_BYTES;
-    uint8 private constant MIN_DATA_LENGTH = ROUTE_ID_BYTES_LENGTH + EXTRA_DATA_LENGTH;
+    /// @dev there are 3 params in ModifyCalldataParams
+    uint8 private constant MODIFY_CALLDATA_PARAMS_COUNT = 3;
+    /// @dev each ModifyCalldataParams is 32 bytes
+    uint8 private constant MODIFY_CALLDATA_LENGTH_BYTES = 32;
+    /// @dev total length of the modify calldata bytes
+    uint8 private constant MODIFY_CALLDATA_LENGTH = MODIFY_CALLDATA_PARAMS_COUNT * MODIFY_CALLDATA_LENGTH_BYTES;
+    /// @dev minimum length of the data payload
+    /// @dev should atleast include the routeId and the ModifyCalldataParams
+    uint8 private constant MIN_DATA_LENGTH = ROUTE_ID_BYTES_LENGTH + MODIFY_CALLDATA_LENGTH;
 
     address public immutable SOCKET_GATEWAY;
 
@@ -47,7 +52,7 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
     }
 
     function _parseAndModifyCalldata(uint256 amount, bytes calldata data) internal pure returns (bytes memory) {
-        // Parse the data into route calldata and extra data
+        // Parse the data into route calldata and ModifyCalldataParams
         (bytes memory routeCalldata, ModifyCalldataParams memory modifyCalldataParams) = _parseCalldata(data);
 
         // Read the original input amount from the calldata
@@ -77,14 +82,14 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
     }
 
     function _parseCalldata(bytes calldata _data) internal pure returns (bytes memory, ModifyCalldataParams memory) {
-        // calldata should have minimum of routeId and extraDataParams
+        // calldata should have minimum of routeId and ModifyCalldataParams
         if (_data.length < MIN_DATA_LENGTH) revert InvalidInput();
-        uint256 routeCalldataLength = _data.length - EXTRA_DATA_LENGTH;
+        uint256 routeCalldataLength = _data.length - MODIFY_CALLDATA_LENGTH;
 
         // Extract the route execution calldata
         bytes memory routeCalldata = _data[:routeCalldataLength];
 
-        // Extract the extra data struct
+        // Extract the ModifyCalldataParams
         ModifyCalldataParams memory modifyCalldataParams;
         (modifyCalldataParams.inputAmountIdx, modifyCalldataParams.modifyOutput, modifyCalldataParams.outputAmountIdx) =
             abi.decode(_data[routeCalldataLength:], (uint256, bool, uint256));
