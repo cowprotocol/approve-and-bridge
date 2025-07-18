@@ -12,6 +12,8 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
     error PositionOutOfBounds();
     error BridgeFailed();
 
+    /// @dev ModifyCalldataParams is a struct that contains information required to modify SocketGateway calldata
+    /// @dev the input amount index, modify output flag, and output amount index
     struct ModifyCalldataParams {
         uint256 inputAmountIdx;
         bool modifyOutput;
@@ -30,16 +32,29 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
     /// @dev should atleast include the routeId and the ModifyCalldataParams
     uint8 private constant MIN_DATA_LENGTH = ROUTE_ID_BYTES_LENGTH + MODIFY_CALLDATA_LENGTH;
 
+    /// @dev SocketGateway address
     address public immutable SOCKET_GATEWAY;
 
     constructor(address socketGateway_) {
         SOCKET_GATEWAY = socketGateway_;
     }
 
+    /**
+     * @notice Approval should be given to the SocketGateway address
+     * @dev Returns the SocketGateway address
+     */
     function bridgeApprovalTarget() public view override returns (address) {
         return address(SOCKET_GATEWAY);
     }
 
+    /**
+     * @notice Bridge the token via SocketGateway
+     * @dev Modifies SocketGateway calldata to modify the input and output amounts before bridging
+     * @param token The token to bridge
+     * @param amount The amount of token to bridge
+     * @param nativeTokenExtraFee extra fee in native token, if any
+     * @param data encoded bytes including SocketGateway calldata and ModifyCalldataParams
+     */
     function bridge(IERC20 token, uint256 amount, uint256 nativeTokenExtraFee, bytes calldata data) internal override {
         // decode & parse data to find positions in calldata to modify
         bytes memory modifiedCalldata = _parseAndModifyCalldata(amount, data);
@@ -51,11 +66,18 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         if (!success) revert BridgeFailed();
     }
 
+    /**
+     * @dev Parses and modifies the calldata to modify the input and output amounts before bridging
+     * @param amount Updated input amount to use to modify the calldata
+     * @param data encoded bytes including SocketGateway calldata and ModifyCalldataParams
+     * @return modifiedCalldata The modified calldata
+     */
     function _parseAndModifyCalldata(uint256 amount, bytes calldata data) internal pure returns (bytes memory) {
         // Parse the data into route calldata and ModifyCalldataParams
         (bytes memory routeCalldata, ModifyCalldataParams memory modifyCalldataParams) = _parseCalldata(data);
 
         // Read the original input amount from the calldata
+        // before modifying input amount
         uint256 originalInput = _readUint256({_data: routeCalldata, _index: modifyCalldataParams.inputAmountIdx});
 
         // Replace the input amount in the calldata
@@ -81,6 +103,12 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         return modifiedCalldata;
     }
 
+    /**
+     * @dev Parses the calldata to extract the route calldata and ModifyCalldataParams
+     * @param _data The calldata to parse
+     * @return routeCalldata The SocketGateway route calldata
+     * @return modifyCalldataParams The ModifyCalldataParams
+     */
     function _parseCalldata(bytes calldata _data) internal pure returns (bytes memory, ModifyCalldataParams memory) {
         // calldata should have minimum of routeId and ModifyCalldataParams
         if (_data.length < MIN_DATA_LENGTH) revert InvalidInput();
@@ -97,6 +125,10 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         return (routeCalldata, modifyCalldataParams);
     }
 
+    /**
+     * @dev Replaces a uint256 at a given position in a bytes data with a new uint256
+     * @dev Directly modifies the original bytes data in-place without creating a new copy
+     */
     function _replaceUint256(bytes memory _original, uint256 _start, uint256 _amount)
         internal
         pure
@@ -115,7 +147,9 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         return _original;
     }
 
-    // Helper to read a uint256 at a given byte index in a bytes array
+    /**
+     * @dev Reads a uint256 at a given byte index in a bytes array
+     */
     function _readUint256(bytes memory _data, uint256 _index) internal pure returns (uint256 value) {
         if (_data.length < _index + 32) revert PositionOutOfBounds();
         assembly {
@@ -123,6 +157,9 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         }
     }
 
+    /**
+     * @dev Applies a percentage difference to a target number
+     */
     function _applyPctDiff(uint256 _base, uint256 _compare, uint256 _target) internal pure returns (uint256) {
         if (_compare > _base) {
             return _addPctDiff(_base, _compare, _target);
@@ -131,11 +168,9 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         }
     }
 
-    /// @notice Calculates positive percentage difference between two numbers and applies it to a third number
-    /// @param _base The base number to compare against
-    /// @param _compare The number to compare with the base (should be >= _base)
-    /// @param _target The number to apply the percentage difference to
-    /// @return The target number adjusted by the percentage difference
+    /**
+     * @dev Calculates positive percentage difference between two numbers and applies it to a third number
+     */
     function _addPctDiff(uint256 _base, uint256 _compare, uint256 _target) internal pure returns (uint256) {
         // Base number must be greater than 0
         // Compare number must be greater than or equal to base number
@@ -147,11 +182,9 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         return _target + ((_target * difference) / 1e18);
     }
 
-    /// @notice Calculates negative percentage difference between two numbers and applies it to a third number
-    /// @param _base The base number to compare against
-    /// @param _compare The number to compare with the base (should be >= _base)
-    /// @param _target The number to apply the percentage difference to
-    /// @return The target number adjusted by the percentage difference
+    /**
+     * @dev Calculates negative percentage difference between two numbers and applies it to a third number
+     */
     function _subPctDiff(uint256 _base, uint256 _compare, uint256 _target) internal pure returns (uint256) {
         // Base number must be greater than 0
         // Compare number must be less than or equal to base number
