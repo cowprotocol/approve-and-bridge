@@ -19,8 +19,11 @@ abstract contract ApproveAndBridge is IApproveAndBridge {
         external
     {
         // get the balance of the token
-        uint256 balance =
-            address(token) == NATIVE_TOKEN_ADDRESS ? address(this).balance : token.balanceOf(address(this));
+        uint256 balance = address(token) == NATIVE_TOKEN_ADDRESS
+            // if native token, reduce the extra fee from balance
+            // if not enough balance, it will underflow and revert
+            ? address(this).balance - nativeTokenExtraFee
+            : token.balanceOf(address(this));
 
         // check if the balance is greater than the minAmount
         if (balance < minAmount) revert MinAmountNotMet();
