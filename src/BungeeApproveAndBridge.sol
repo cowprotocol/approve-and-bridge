@@ -18,9 +18,12 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         uint256 outputAmountIdx;
     }
 
+    /// @dev routeIds on SocketGateway are 4 bytes
+    uint8 private constant ROUTE_ID_BYTES_LENGTH = 4;
     uint8 private constant EXTRA_DATA_PARAMS_COUNT = 3;
     uint8 private constant EXTRA_DATA_LENGTH_BYTES = 32;
     uint8 private constant EXTRA_DATA_LENGTH = EXTRA_DATA_PARAMS_COUNT * EXTRA_DATA_LENGTH_BYTES;
+    uint8 private constant MIN_DATA_LENGTH = ROUTE_ID_BYTES_LENGTH + EXTRA_DATA_LENGTH;
 
     address public immutable SOCKET_GATEWAY;
 
@@ -74,8 +77,8 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
     }
 
     function _parseCalldata(bytes calldata _data) internal pure returns (bytes memory, ModifyCalldataParams memory) {
-        // Calculate the length of the route execution calldata (excluding the extra data struct)
-        if (_data.length < EXTRA_DATA_LENGTH + 4) revert InvalidInput();
+        // calldata should have minimum of routeId and extraDataParams
+        if (_data.length < MIN_DATA_LENGTH) revert InvalidInput();
         uint256 routeCalldataLength = _data.length - EXTRA_DATA_LENGTH;
 
         // Extract the route execution calldata
