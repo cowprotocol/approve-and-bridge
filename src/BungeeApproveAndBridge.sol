@@ -22,7 +22,7 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
     uint8 private constant EXTRA_DATA_LENGTH_BYTES = 32;
     uint8 private constant EXTRA_DATA_LENGTH = EXTRA_DATA_PARAMS_COUNT * EXTRA_DATA_LENGTH_BYTES;
 
-    address immutable SOCKET_GATEWAY;
+    address public immutable SOCKET_GATEWAY;
 
     constructor(address socketGateway_) {
         SOCKET_GATEWAY = socketGateway_;
