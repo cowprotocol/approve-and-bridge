@@ -3,7 +3,7 @@ pragma solidity ^0.8;
 
 import {Script, console} from "forge-std/Script.sol";
 
-import {BungeeApproveAndBridge, ISocketGateway} from "src/BungeeApproveAndBridge.sol";
+import {BungeeApproveAndBridge} from "src/BungeeApproveAndBridge.sol";
 
 interface ICreateX {
     function computeCreate3Address(bytes32 salt) external view returns (address computedAddress);
@@ -13,7 +13,7 @@ interface ICreateX {
 contract DeployScript is Script {
     BungeeApproveAndBridge public bungeeApproveAndBridge;
 
-    ISocketGateway constant SOCKET_GATEWAY = ISocketGateway(0x3a23F943181408EAC424116Af7b7790c94Cb97a5);
+    address constant SOCKET_GATEWAY = 0x3a23F943181408EAC424116Af7b7790c94Cb97a5;
 
     ICreateX constant createX = ICreateX(0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed);
 

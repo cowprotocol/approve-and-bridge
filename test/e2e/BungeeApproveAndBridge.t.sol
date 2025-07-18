@@ -7,7 +7,6 @@ import {ForkedRpc} from "./lib/ForkedRpc.sol";
 import {BungeeApproveAndBridge, IERC20} from "src/BungeeApproveAndBridge.sol";
 
 import {IApproveAndBridge} from "src/interface/IApproveAndBridge.sol";
-import {ISocketGateway} from "src/interface/ISocketGateway.sol";
 
 interface COWShedFactory {
     function initializeProxy(address user, bool withEns) external;
@@ -30,7 +29,7 @@ contract E2EBungeeApproveAndBridgeTest is Test {
     using ForkedRpc for Vm;
 
     uint256 private constant BASE_FORK_BLOCK = 32853375;
-    ISocketGateway constant SOCKET_GATEWAY = ISocketGateway(0x3a23F943181408EAC424116Af7b7790c94Cb97a5);
+    address constant SOCKET_GATEWAY = 0x3a23F943181408EAC424116Af7b7790c94Cb97a5;
     IERC20 constant USDC = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
     // https://github.com/cowdao-grants/cow-shed/blob/96cbe1ef68f5fd16a3d2899a13cd3dca52444c17/networks.json
     COWShedFactory constant factory = COWShedFactory(0x00E989b87700514118Fa55326CD1cCE82faebEF6);
@@ -41,7 +40,7 @@ contract E2EBungeeApproveAndBridgeTest is Test {
 
     function setUp() public {
         vm.label(user, "user");
-        vm.label(address(SOCKET_GATEWAY), "socket gateway");
+        vm.label(SOCKET_GATEWAY, "socket gateway");
         vm.label(address(USDC), "USDC");
 
         vm.forkBaseAtBlock(BASE_FORK_BLOCK);

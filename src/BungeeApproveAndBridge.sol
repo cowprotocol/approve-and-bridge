@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8;
 
-import {ISocketGateway} from "./interface/ISocketGateway.sol";
 import {ApproveAndBridge, IERC20} from "./mixin/ApproveAndBridge.sol";
 
 /// ! @dev UNAUDITED UNTESTED Do not use in production
@@ -23,14 +22,14 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
     uint8 private constant EXTRA_DATA_LENGTH_BYTES = 32;
     uint8 private constant EXTRA_DATA_LENGTH = EXTRA_DATA_PARAMS_COUNT * EXTRA_DATA_LENGTH_BYTES;
 
-    ISocketGateway immutable socketGateway;
+    address immutable SOCKET_GATEWAY;
 
-    constructor(ISocketGateway socketGateway_) {
-        socketGateway = socketGateway_;
+    constructor(address socketGateway_) {
+        SOCKET_GATEWAY = socketGateway_;
     }
 
     function bridgeApprovalTarget() public view override returns (address) {
-        return address(socketGateway);
+        return address(SOCKET_GATEWAY);
     }
 
     function bridge(IERC20 token, uint256 amount, uint256 nativeTokenExtraFee, bytes calldata data) internal override {
@@ -39,8 +38,8 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
 
         // execute using the modified calldata via SocketGateway.fallback()
         (bool success,) = address(token) == NATIVE_TOKEN_ADDRESS
-            ? address(socketGateway).call{value: amount + nativeTokenExtraFee}(modifiedCalldata)
-            : address(socketGateway).call{value: nativeTokenExtraFee}(modifiedCalldata);
+            ? address(SOCKET_GATEWAY).call{value: amount + nativeTokenExtraFee}(modifiedCalldata)
+            : address(SOCKET_GATEWAY).call{value: nativeTokenExtraFee}(modifiedCalldata);
         if (!success) revert BridgeFailed();
     }
 
