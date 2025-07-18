@@ -86,15 +86,14 @@ contract E2EBungeeApproveAndBridgeTest is Test {
         uint256 outputAmountStartIndex = 0;
         uint256 additionalValue = 0;
 
-        bytes memory extraData =
-            abi.encode(inputAmountStartIndex, modifyOutputAmount, outputAmountStartIndex, additionalValue);
+        bytes memory extraData = abi.encode(inputAmountStartIndex, modifyOutputAmount, outputAmountStartIndex);
         bytes memory _calldata = abi.encodePacked(BungeeApiCalldata, extraData);
 
         COWShed.Call[] memory calls = new COWShed.Call[](1);
         calls[0] = COWShed.Call({
             target: address(approveAndBridge),
             value: 0,
-            callData: abi.encodeCall(IApproveAndBridge.approveAndBridge, (USDC, minProceeds, _calldata)),
+            callData: abi.encodeCall(IApproveAndBridge.approveAndBridge, (USDC, minProceeds, additionalValue, _calldata)),
             allowFailure: false,
             isDelegateCall: true
         });

@@ -17,10 +17,9 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         uint256 inputAmountIdx;
         bool modifyOutput;
         uint256 outputAmountIdx;
-        uint256 additionalValue;
     }
 
-    uint8 private constant EXTRA_DATA_PARAMS_COUNT = 4;
+    uint8 private constant EXTRA_DATA_PARAMS_COUNT = 3;
     uint8 private constant EXTRA_DATA_LENGTH_BYTES = 32;
     uint8 private constant EXTRA_DATA_LENGTH = EXTRA_DATA_PARAMS_COUNT * EXTRA_DATA_LENGTH_BYTES;
 
@@ -34,22 +33,18 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
         return address(socketGateway);
     }
 
-    function bridge(IERC20 token, uint256 amount, bytes calldata data) internal override {
+    function bridge(IERC20 token, uint256 amount, uint256 nativeTokenExtraFee, bytes calldata data) internal override {
         // decode & parse data to find positions in calldata to modify
-        (bytes memory modifiedCalldata, uint256 additionalValue) = _parseAndModifyCalldata(amount, data);
+        bytes memory modifiedCalldata = _parseAndModifyCalldata(amount, data);
 
         // execute using the modified calldata via SocketGateway.fallback()
         (bool success,) = address(token) == NATIVE_TOKEN_ADDRESS
-            ? address(socketGateway).call{value: amount + additionalValue}(modifiedCalldata)
-            : address(socketGateway).call{value: additionalValue}(modifiedCalldata);
+            ? address(socketGateway).call{value: amount + nativeTokenExtraFee}(modifiedCalldata)
+            : address(socketGateway).call{value: nativeTokenExtraFee}(modifiedCalldata);
         if (!success) revert BridgeFailed();
     }
 
-    function _parseAndModifyCalldata(uint256 amount, bytes calldata data)
-        internal
-        pure
-        returns (bytes memory, uint256)
-    {
+    function _parseAndModifyCalldata(uint256 amount, bytes calldata data) internal pure returns (bytes memory) {
         // Parse the data into route calldata and extra data
         (bytes memory routeCalldata, ModifyCalldataParams memory modifyCalldataParams) = _parseCalldata(data);
 
@@ -76,7 +71,7 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
             });
         }
 
-        return (modifiedCalldata, modifyCalldataParams.additionalValue);
+        return modifiedCalldata;
     }
 
     function _parseCalldata(bytes calldata _data) internal pure returns (bytes memory, ModifyCalldataParams memory) {
@@ -89,12 +84,8 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
 
         // Extract the extra data struct
         ModifyCalldataParams memory modifyCalldataParams;
-        (
-            modifyCalldataParams.inputAmountIdx,
-            modifyCalldataParams.modifyOutput,
-            modifyCalldataParams.outputAmountIdx,
-            modifyCalldataParams.additionalValue
-        ) = abi.decode(_data[routeCalldataLength:], (uint256, bool, uint256, uint256));
+        (modifyCalldataParams.inputAmountIdx, modifyCalldataParams.modifyOutput, modifyCalldataParams.outputAmountIdx) =
+            abi.decode(_data[routeCalldataLength:], (uint256, bool, uint256));
 
         return (routeCalldata, modifyCalldataParams);
     }
