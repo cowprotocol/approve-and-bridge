@@ -3,4 +3,13 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
+optimizer = true
+optimizer_runs = 10_000
+
+# Configs to support CREATE2
+solc = "0.8.29" # Pin solidity version
+evm_version = "paris" # Because PUSH0 may not be supported everywhere
+bytecode_hash = "none" # Avoid bytecode hash to prevent changes to bytecode
+cbor_metadata = false # Disable CBOR metadata
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

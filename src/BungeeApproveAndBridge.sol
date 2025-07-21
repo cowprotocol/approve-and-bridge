@@ -5,9 +5,10 @@ import {ApproveAndBridge, IERC20} from "./mixin/ApproveAndBridge.sol";
 import {Math} from "./vendored/Math.sol";
 
 /// ! @dev UNAUDITED UNTESTED Do not use in production
-/// @dev Performs two steps before bridging:
+/// @dev Performs two steps before bridging via SocketGateway:
 /// 1. Modify input amount in calldata
 /// 2. Modify output amount in calldata
+/// 3. Call SocketGateway.fallback() with the modified calldata
 contract BungeeApproveAndBridge is ApproveAndBridge {
     error InvalidInput();
     error PositionOutOfBounds();
