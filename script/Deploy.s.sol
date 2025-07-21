@@ -20,11 +20,6 @@ contract DeployScript is Script {
     }
 
     function deploy(uint256 salt) public returns (address addr) {
-        bool ENABLE_TXNS = vm.envBool("ENABLE_TXNS");
-        if (!ENABLE_TXNS) {
-            console.log("Skipping deployment of contract due to ENABLE_TXNS flag");
-        }
-
         BungeeApproveAndBridge _bungeeApproveAndBridge = new BungeeApproveAndBridge{salt: bytes32(salt)}(SOCKET_GATEWAY);
         addr = address(_bungeeApproveAndBridge);
         console.log("Deployed contract to: %s", address(addr));
