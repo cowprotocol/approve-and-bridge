@@ -20,6 +20,7 @@ contract DeployScript is Script {
     }
 
     function deploy(uint256 salt) public returns (address addr) {
+        vm.broadcast();
         BungeeApproveAndBridge _bungeeApproveAndBridge = new BungeeApproveAndBridge{salt: bytes32(salt)}(SOCKET_GATEWAY);
         addr = address(_bungeeApproveAndBridge);
         console.log("Deployed contract to: %s", address(addr));
