@@ -29,6 +29,11 @@ contract BungeeApproveAndBridgeTest is Test {
     function test_applyPctDiff() public {
         assertEq(bungeeApproveAndBridge.applyPctDiff({_base: 100, _compare: 110, _target: 100}), 110);
         assertEq(bungeeApproveAndBridge.applyPctDiff({_base: 100, _compare: 90, _target: 100}), 90);
+
+        // 20 + 10% = 22
+        assertEq(bungeeApproveAndBridge.applyPctDiff({_base: 100, _compare: 110, _target: 20}), 22);
+        // 20 - 10% = 18
+        assertEq(bungeeApproveAndBridge.applyPctDiff({_base: 100, _compare: 90, _target: 20}), 18);
     }
 
     function test_applyPctDiff_equal() public {

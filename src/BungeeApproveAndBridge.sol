@@ -2,6 +2,7 @@
 pragma solidity ^0.8;
 
 import {ApproveAndBridge, IERC20} from "./mixin/ApproveAndBridge.sol";
+import {Math} from "./vendored/Math.sol";
 
 /// ! @dev UNAUDITED UNTESTED Do not use in production
 /// @dev Performs two steps before bridging:
@@ -161,38 +162,7 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
      * @dev Applies a percentage difference to a target number
      */
     function _applyPctDiff(uint256 _base, uint256 _compare, uint256 _target) internal pure returns (uint256) {
-        if (_compare > _base) {
-            return _addPctDiff(_base, _compare, _target);
-        } else {
-            return _subPctDiff(_base, _compare, _target);
-        }
-    }
-
-    /**
-     * @dev Calculates positive percentage difference between two numbers and applies it to a third number
-     */
-    function _addPctDiff(uint256 _base, uint256 _compare, uint256 _target) internal pure returns (uint256) {
-        // Base number must be greater than 0
-        // Compare number must be greater than or equal to base number
-        if (_base <= 0 || _compare < _base) revert InvalidInput();
-
-        // Calculate the percentage difference
-        uint256 difference = ((_compare - _base) * 1e18) / _base;
-        // Apply percentage increase
-        return _target + ((_target * difference) / 1e18);
-    }
-
-    /**
-     * @dev Calculates negative percentage difference between two numbers and applies it to a third number
-     */
-    function _subPctDiff(uint256 _base, uint256 _compare, uint256 _target) internal pure returns (uint256) {
-        // Base number must be greater than 0
-        // Compare number must be less than or equal to base number
-        if (_base <= 0 || _compare > _base) revert InvalidInput();
-
-        // Calculate the percentage difference
-        uint256 difference = ((_base - _compare) * 1e18) / _base;
-        // Apply percentage decrease
-        return _target - ((_target * difference) / 1e18);
+        if (_base == 0) revert InvalidInput();
+        return Math.mulDiv({x: _target, y: _compare, denominator: _base});
     }
 }
