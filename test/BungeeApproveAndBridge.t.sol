@@ -23,6 +23,18 @@ contract PublicBungeeApproveAndBridge is BungeeApproveAndBridge {
     function readUint256(bytes memory _data, uint256 _index) public pure returns (uint256) {
         return super._readUint256(_data, _index);
     }
+
+    function parseCalldata(bytes calldata _data)
+        public
+        pure
+        returns (bytes memory, BungeeApproveAndBridge.ModifyCalldataParams memory)
+    {
+        return super._parseCalldata(_data);
+    }
+
+    function parseAndModifyCalldata(uint256 amount, bytes calldata data) public pure returns (bytes memory) {
+        return super._parseAndModifyCalldata(amount, data);
+    }
 }
 
 contract BungeeApproveAndBridgeTest is Test {
@@ -41,6 +53,9 @@ contract BungeeApproveAndBridgeTest is Test {
         assertEq(bungeeApproveAndBridge.SOCKET_GATEWAY(), SOCKET_GATEWAY);
     }
 
+    /*//////////////////////////////////////////////////////////////
+                            _applyPctDiff()
+    //////////////////////////////////////////////////////////////*/
     function test_applyPctDiff_basic() public {
         // Basic percentage calculations
         assertEq(bungeeApproveAndBridge.applyPctDiff({_base: 100, _compare: 110, _target: 100}), 110);
@@ -306,8 +321,9 @@ contract BungeeApproveAndBridgeTest is Test {
         assertEq(bungeeApproveAndBridge.applyPctDiff({_base: 7, _compare: 22, _target: 100}), 314); // 100 * 22/7 = 314.28... rounds to 314
     }
 
-    // ========== _replaceUint256 TESTS ==========
-
+    /*//////////////////////////////////////////////////////////////
+                            _replaceUint256()
+    //////////////////////////////////////////////////////////////*/
     function test_replaceUint256_emptyBytes() public {
         // Test with empty bytes - should revert with PositionOutOfBounds
         bytes memory emptyBytes = "";
@@ -515,5 +531,342 @@ contract BungeeApproveAndBridgeTest is Test {
         assertNotEq(bungeeApproveAndBridge.readUint256(result, 0), bungeeApproveAndBridge.readUint256(data, 0));
         // but this is returning the modified input value, so this should be the new value
         assertEq(bungeeApproveAndBridge.readUint256(original, 0), newAmount);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             _parseCalldata()
+    //////////////////////////////////////////////////////////////*/
+    function test_parseCalldata_minimumLength() public {
+        // Test with minimum valid length (4 bytes routeId + 96 bytes BungeeApproveAndBridge.ModifyCalldataParams = 100 bytes)
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 32;
+        bool modifyOutput = true;
+        uint256 outputAmountIdx = 64;
+
+        bytes memory data = abi.encodePacked(routeId, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        (bytes memory routeCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+            bungeeApproveAndBridge.parseCalldata(data);
+
+        // Verify route calldata is correct
+        assertEq(routeCalldata.length, 4);
+        assertEq(routeCalldata, routeId);
+
+        // Verify BungeeApproveAndBridge.ModifyCalldataParams are correct
+        assertEq(params.inputAmountIdx, inputAmountIdx);
+        assertEq(params.modifyOutput, modifyOutput);
+        assertEq(params.outputAmountIdx, outputAmountIdx);
+    }
+
+    function test_parseCalldata_largerRouteCalldata() public {
+        // Test with larger route calldata
+        bytes memory routeId = hex"12345678";
+        bytes memory additionalData = hex"deadbeefdeadbeefdeadbeefdeadbeef";
+        uint256 inputAmountIdx = 32;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+
+        bytes memory routeCalldata = abi.encodePacked(routeId, additionalData);
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        (bytes memory parsedRouteCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+            bungeeApproveAndBridge.parseCalldata(data);
+
+        // Verify route calldata is correct
+        assertEq(parsedRouteCalldata.length, 20); // routeId(4) + additionalData(16)
+        assertEq(parsedRouteCalldata, routeCalldata);
+
+        // Verify BungeeApproveAndBridge.ModifyCalldataParams are correct
+        assertEq(params.inputAmountIdx, inputAmountIdx);
+        assertEq(params.modifyOutput, modifyOutput);
+        assertEq(params.outputAmountIdx, outputAmountIdx);
+    }
+
+    function test_parseCalldata_complexRouteCalldata() public {
+        // Test with complex route calldata containing multiple parameters
+        bytes memory routeId = hex"12345678";
+        bytes memory param1 = hex"1111111111111111111111111111111111111111111111111111111111111111";
+        bytes memory param2 = hex"2222222222222222222222222222222222222222222222222222222222222222";
+        bytes memory param3 = hex"3333333333333333333333333333333333333333333333333333333333333333";
+
+        uint256 inputAmountIdx = 68; // After routeId (4) + param1 (32) + param2 (32)
+        bool modifyOutput = true;
+        uint256 outputAmountIdx = 100; // After routeId (4) + param1 (32) + param2 (32) + param3 (32)
+
+        bytes memory routeCalldata = abi.encodePacked(routeId, param1, param2, param3);
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        (bytes memory parsedRouteCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+            bungeeApproveAndBridge.parseCalldata(data);
+
+        // Verify route calldata is correct
+        assertEq(parsedRouteCalldata.length, 100); // 4 + 32 + 32 + 32
+        assertEq(parsedRouteCalldata, routeCalldata);
+
+        // Verify BungeeApproveAndBridge.ModifyCalldataParams are correct
+        assertEq(params.inputAmountIdx, inputAmountIdx);
+        assertEq(params.modifyOutput, modifyOutput);
+        assertEq(params.outputAmountIdx, outputAmountIdx);
+    }
+
+    function test_parseCalldata_edgeCaseValues() public {
+        // Test with edge case values for BungeeApproveAndBridge.ModifyCalldataParams
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 0;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+
+        bytes memory data = abi.encodePacked(routeId, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        (bytes memory routeCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+            bungeeApproveAndBridge.parseCalldata(data);
+
+        assertEq(routeCalldata, routeId);
+        assertEq(params.inputAmountIdx, 0);
+        assertEq(params.modifyOutput, false);
+        assertEq(params.outputAmountIdx, 0);
+    }
+
+    function test_parseCalldata_maxValues() public {
+        // Test with maximum uint256 values
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = type(uint256).max;
+        bool modifyOutput = true;
+        uint256 outputAmountIdx = type(uint256).max;
+
+        bytes memory data = abi.encodePacked(routeId, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        (bytes memory routeCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+            bungeeApproveAndBridge.parseCalldata(data);
+
+        assertEq(routeCalldata, routeId);
+        assertEq(params.inputAmountIdx, type(uint256).max);
+        assertEq(params.modifyOutput, true);
+        assertEq(params.outputAmountIdx, type(uint256).max);
+    }
+
+    function test_parseCalldata_shouldRevert_InvalidInput_tooShort() public {
+        // Test with data shorter than minimum length (100 bytes)
+        bytes memory shortData = hex"12345678"; // Only 4 bytes, should revert
+
+        vm.expectRevert(BungeeApproveAndBridge.InvalidInput.selector);
+        bungeeApproveAndBridge.parseCalldata(shortData);
+    }
+
+    function test_parseCalldata_shouldRevert_InvalidInput_emptyData() public {
+        // Test with empty data
+        bytes memory emptyData = "";
+
+        vm.expectRevert(BungeeApproveAndBridge.InvalidInput.selector);
+        bungeeApproveAndBridge.parseCalldata(emptyData);
+    }
+
+    function test_parseCalldata_shouldRevert_InvalidInput_exactlyOneByteShort() public {
+        // Test with data exactly one byte shorter than minimum
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 32;
+        bool modifyOutput = true;
+        uint256 outputAmountIdx = 64;
+
+        // Create data that's 99 bytes (1 byte short of minimum 100)
+        bytes memory data = abi.encodePacked(routeId, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+        bytes memory shortData = new bytes(data.length - 1);
+        for (uint256 i = 0; i < shortData.length; i++) {
+            shortData[i] = data[i];
+        }
+
+        vm.expectRevert(BungeeApproveAndBridge.InvalidInput.selector);
+        bungeeApproveAndBridge.parseCalldata(shortData);
+    }
+
+    function test_parseCalldata_veryLargeRouteCalldata() public {
+        // Test with very large route calldata
+        bytes memory routeId = hex"12345678";
+        bytes memory largeData = new bytes(1000);
+        for (uint256 i = 0; i < 1000; i++) {
+            largeData[i] = bytes1(uint8(i % 256));
+        }
+
+        uint256 inputAmountIdx = 32;
+        bool modifyOutput = true;
+        uint256 outputAmountIdx = 64;
+
+        bytes memory routeCalldata = abi.encodePacked(routeId, largeData);
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        (bytes memory parsedRouteCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+            bungeeApproveAndBridge.parseCalldata(data);
+
+        // Verify route calldata is correct
+        assertEq(parsedRouteCalldata.length, 1004); // 4 + 1000
+        assertEq(parsedRouteCalldata, routeCalldata);
+
+        // Verify BungeeApproveAndBridge.ModifyCalldataParams are correct
+        assertEq(params.inputAmountIdx, inputAmountIdx);
+        assertEq(params.modifyOutput, modifyOutput);
+        assertEq(params.outputAmountIdx, outputAmountIdx);
+    }
+
+    function test_parseCalldata_multipleTestCases() public {
+        // Test multiple different scenarios
+        bytes memory routeId = hex"12345678";
+
+        // Test case 1: Basic case
+        {
+            uint256 inputAmountIdx = 32;
+            bool modifyOutput = true;
+            uint256 outputAmountIdx = 64;
+
+            bytes memory data = abi.encodePacked(routeId, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+            (bytes memory routeCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+                bungeeApproveAndBridge.parseCalldata(data);
+
+            assertEq(routeCalldata, routeId);
+            assertEq(params.inputAmountIdx, inputAmountIdx);
+            assertEq(params.modifyOutput, modifyOutput);
+            assertEq(params.outputAmountIdx, outputAmountIdx);
+        }
+
+        // Test case 2: Different values
+        {
+            uint256 inputAmountIdx = 100;
+            bool modifyOutput = false;
+            uint256 outputAmountIdx = 200;
+
+            bytes memory data = abi.encodePacked(routeId, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+            (bytes memory routeCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+                bungeeApproveAndBridge.parseCalldata(data);
+
+            assertEq(routeCalldata, routeId);
+            assertEq(params.inputAmountIdx, inputAmountIdx);
+            assertEq(params.modifyOutput, modifyOutput);
+            assertEq(params.outputAmountIdx, outputAmountIdx);
+        }
+
+        // Test case 3: Large indices
+        {
+            uint256 inputAmountIdx = 1000000;
+            bool modifyOutput = true;
+            uint256 outputAmountIdx = 2000000;
+
+            bytes memory data = abi.encodePacked(routeId, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+            (bytes memory routeCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+                bungeeApproveAndBridge.parseCalldata(data);
+
+            assertEq(routeCalldata, routeId);
+            assertEq(params.inputAmountIdx, inputAmountIdx);
+            assertEq(params.modifyOutput, modifyOutput);
+            assertEq(params.outputAmountIdx, outputAmountIdx);
+        }
+    }
+
+    function test_parseCalldata_abiEncodingConsistency() public {
+        // Test that the ABI encoding/decoding is consistent
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 32;
+        bool modifyOutput = true;
+        uint256 outputAmountIdx = 64;
+
+        // Create data using ABI encoding
+        bytes memory data = abi.encodePacked(routeId, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Parse the data
+        (bytes memory routeCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+            bungeeApproveAndBridge.parseCalldata(data);
+
+        // Re-encode the params and verify they match
+        bytes memory reEncodedParams = abi.encode(params.inputAmountIdx, params.modifyOutput, params.outputAmountIdx);
+        bytes memory originalParams = abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx);
+
+        assertEq(reEncodedParams, originalParams);
+        assertEq(routeCalldata, routeId);
+    }
+
+    function test_parseCalldata_boundaryConditions() public {
+        // Test boundary conditions around the minimum length
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 32;
+        bool modifyOutput = true;
+        uint256 outputAmountIdx = 64;
+
+        // Test exactly at minimum length (should work)
+        bytes memory minData = abi.encodePacked(routeId, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+        (bytes memory routeCalldata, BungeeApproveAndBridge.ModifyCalldataParams memory params) =
+            bungeeApproveAndBridge.parseCalldata(minData);
+
+        assertEq(routeCalldata, routeId);
+        assertEq(params.inputAmountIdx, inputAmountIdx);
+        assertEq(params.modifyOutput, modifyOutput);
+        assertEq(params.outputAmountIdx, outputAmountIdx);
+
+        // Test one byte less than minimum (should revert)
+        bytes memory shortData = new bytes(minData.length - 1);
+        for (uint256 i = 0; i < shortData.length; i++) {
+            shortData[i] = minData[i];
+        }
+
+        vm.expectRevert(BungeeApproveAndBridge.InvalidInput.selector);
+        bungeeApproveAndBridge.parseCalldata(shortData);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        _parseAndModifyCalldata()
+    //////////////////////////////////////////////////////////////*/
+    function test_parseAndModifyCalldata_onlyInput() public {
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(100));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+        bytes memory modified = bungeeApproveAndBridge.parseAndModifyCalldata(200, data);
+        uint256 newInput = bungeeApproveAndBridge.readUint256(modified, inputAmountIdx);
+        assertEq(newInput, 200);
+        for (uint256 i = 0; i < 4; i++) {
+            assertEq(modified[i], routeId[i]);
+        }
+    }
+
+    function test_parseAndModifyCalldata_inputAndOutput() public {
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = true;
+        uint256 outputAmountIdx = 36;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(100), uint256(50));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+        bytes memory modified = bungeeApproveAndBridge.parseAndModifyCalldata(200, data);
+        uint256 newInput = bungeeApproveAndBridge.readUint256(modified, inputAmountIdx);
+        assertEq(newInput, 200);
+        uint256 newOutput = bungeeApproveAndBridge.readUint256(modified, outputAmountIdx);
+        assertEq(newOutput, 100);
+    }
+
+    function test_parseAndModifyCalldata_outOfBounds() public {
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 1000;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(100));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+        vm.expectRevert(BungeeApproveAndBridge.PositionOutOfBounds.selector);
+        bungeeApproveAndBridge.parseAndModifyCalldata(200, data);
+    }
+
+    function test_parseAndModifyCalldata_modifyOutputFalse() public {
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 36;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(100), uint256(50));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+        bytes memory modified = bungeeApproveAndBridge.parseAndModifyCalldata(200, data);
+        uint256 output = bungeeApproveAndBridge.readUint256(modified, outputAmountIdx);
+        assertEq(output, 50);
+    }
+
+    function test_parseAndModifyCalldata_minimumLength() public {
+        bytes memory data = hex"12345678";
+        vm.expectRevert(BungeeApproveAndBridge.InvalidInput.selector);
+        bungeeApproveAndBridge.parseAndModifyCalldata(100, data);
     }
 }
