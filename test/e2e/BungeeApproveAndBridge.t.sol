@@ -25,6 +25,8 @@ interface COWShed {
     function trustedExecuteHooks(Call[] calldata calls) external;
 }
 
+// Across on Base needs Shanghai for PUSH0
+/// forge-config: default.evm_version = "shanghai"
 contract E2EBungeeApproveAndBridgeTest is Test {
     using ForkedRpc for Vm;
 
@@ -48,7 +50,7 @@ contract E2EBungeeApproveAndBridgeTest is Test {
         receiver = makeAddr("E2EBungeeApproveAndBridgeTest: receiver");
     }
 
-    function test_happyPath() external {
+    function test_across_USDC_to_USDC() external {
         // Note: deployment and initialization is handled in `executeHooks` and
         // doesn't need to be done in the actual trade setting.
         // However, it's easier to build the test without handling the
@@ -70,12 +72,54 @@ contract E2EBungeeApproveAndBridgeTest is Test {
         assertEq(USDC.balanceOf(address(shed)), orderProceeds);
 
         /* Across */
-        // bytes memory BungeeApiCalldata =
-        //     hex"0000019b792ebcb900000000000000000000000000000000000000000000000000000000004bea47000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001e00000000000000000000000000000000000000000000000000000000000001f9a0000000000000000000000000000000000000000000000000000000000000a2d00000000000000000000000000000000000000000000000000000000000000020000000000000000000000007851b96b5798774258437195183d7c8094583c40000000000000000000000000daee4d2156de6fe6f7d50ca047136d758f96a6f00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913000000000000000000000000af88d065e77c8cc2239327c5edb3a432268e5831000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000004bcaad000000000000000000000000000000000000000000000000000000000000a4b10000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000006874f43f0000000000000000000000000000000000000000000000000000000068754845d00dfeeddeadbeef765753be7f7a64d5509974b0d678e1e3149b02f4";
-        // uint256 inputAmountStartIndex = 8;
-        // bool modifyOutputAmount = true;
-        // uint256 outputAmountStartIndex = 488;
-        // uint256 additionalValue = 0;
+        bytes memory BungeeApiCalldata =
+            hex"0000019b792ebcb900000000000000000000000000000000000000000000000000000000004bea47000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001e00000000000000000000000000000000000000000000000000000000000001f9a0000000000000000000000000000000000000000000000000000000000000a2d00000000000000000000000000000000000000000000000000000000000000020000000000000000000000007851b96b5798774258437195183d7c8094583c40000000000000000000000000daee4d2156de6fe6f7d50ca047136d758f96a6f00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913000000000000000000000000af88d065e77c8cc2239327c5edb3a432268e5831000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000004bcaad000000000000000000000000000000000000000000000000000000000000a4b10000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000006874f43f0000000000000000000000000000000000000000000000000000000068754845d00dfeeddeadbeef765753be7f7a64d5509974b0d678e1e3149b02f4";
+        uint256 inputAmountStartIndex = 8;
+        bool modifyOutputAmount = true;
+        uint256 outputAmountStartIndex = 488;
+        uint256 additionalValue = 0;
+
+        bytes memory extraData = abi.encode(inputAmountStartIndex, modifyOutputAmount, outputAmountStartIndex);
+        bytes memory _calldata = abi.encodePacked(BungeeApiCalldata, extraData);
+
+        emit log_named_bytes("BungeeApiCalldata", BungeeApiCalldata);
+        emit log_named_bytes("extraData", extraData);
+        emit log_named_bytes("_calldata", _calldata);
+
+        COWShed.Call[] memory calls = new COWShed.Call[](1);
+        calls[0] = COWShed.Call({
+            target: address(approveAndBridge),
+            value: 0,
+            callData: abi.encodeCall(IApproveAndBridge.approveAndBridge, (USDC, minProceeds, additionalValue, _calldata)),
+            allowFailure: false,
+            isDelegateCall: true
+        });
+
+        vm.prank(address(factory));
+        shed.trustedExecuteHooks(calls);
+        assertEq(USDC.balanceOf(address(shed)), 0);
+    }
+
+    function test_cctp_USDC_to_USDC() external {
+        // Note: deployment and initialization is handled in `executeHooks` and
+        // doesn't need to be done in the actual trade setting.
+        // However, it's easier to build the test without handling the
+        // authentication part needed for that and use `trustedExecuteHooks`
+        // through the factory instead.
+        factory.initializeProxy(user, false);
+        COWShed shed = COWShed(factory.proxyOf(user));
+        vm.label(address(shed), "shed");
+        assertGt(address(shed).code.length, 0);
+
+        uint256 orderProceeds = 5e6;
+        uint256 minProceeds = 4.9e6;
+        assertGt(orderProceeds, minProceeds);
+
+        // For simplicity we take the funds from the user, but they should come
+        // from an order.
+        vm.prank(user);
+        USDC.transfer(address(shed), orderProceeds);
+        assertEq(USDC.balanceOf(address(shed)), orderProceeds);
 
         /* CCTP */
         bytes memory BungeeApiCalldata =
