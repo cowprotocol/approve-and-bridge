@@ -38,6 +38,8 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
     address public immutable SOCKET_GATEWAY;
 
     constructor(address socketGateway_) {
+        require(socketGateway_.code.length > 0, "Socket gateway contract not deployed");
+
         SOCKET_GATEWAY = socketGateway_;
     }
 
