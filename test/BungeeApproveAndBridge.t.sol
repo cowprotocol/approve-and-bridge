@@ -11,6 +11,18 @@ contract PublicBungeeApproveAndBridge is BungeeApproveAndBridge {
     function applyPctDiff(uint256 _base, uint256 _compare, uint256 _target) public view returns (uint256) {
         return super._applyPctDiff(_base, _compare, _target);
     }
+
+    function replaceUint256(bytes memory _original, uint256 _start, uint256 _amount)
+        public
+        pure
+        returns (bytes memory original, bytes memory modified)
+    {
+        return (_original, super._replaceUint256(_original, _start, _amount));
+    }
+
+    function readUint256(bytes memory _data, uint256 _index) public pure returns (uint256) {
+        return super._readUint256(_data, _index);
+    }
 }
 
 contract BungeeApproveAndBridgeTest is Test {
@@ -292,5 +304,216 @@ contract BungeeApproveAndBridgeTest is Test {
         // Test 8: Large ratio with values that test rounding behavior
         assertEq(bungeeApproveAndBridge.applyPctDiff({_base: 3, _compare: 10, _target: 100}), 333); // 100 * 10/3 = 333.33... rounds to 333
         assertEq(bungeeApproveAndBridge.applyPctDiff({_base: 7, _compare: 22, _target: 100}), 314); // 100 * 22/7 = 314.28... rounds to 314
+    }
+
+    // ========== _replaceUint256 TESTS ==========
+
+    function test_replaceUint256_emptyBytes() public {
+        // Test with empty bytes - should revert with PositionOutOfBounds
+        bytes memory emptyBytes = "";
+        vm.expectRevert(BungeeApproveAndBridge.PositionOutOfBounds.selector);
+        bungeeApproveAndBridge.replaceUint256(emptyBytes, 0, 123);
+    }
+
+    function test_replaceUint256_exactly32Bytes() public {
+        // Test with exactly 32 bytes
+        bytes memory data = new bytes(32);
+        // Fill with some initial data
+        for (uint256 i = 0; i < 32; i++) {
+            data[i] = bytes1(uint8(i));
+        }
+
+        uint256 newAmount = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+
+        // Replace at start (offset 0)
+        (, bytes memory result) = bungeeApproveAndBridge.replaceUint256(data, 0, newAmount);
+
+        // Verify the replacement worked
+        uint256 readValue = bungeeApproveAndBridge.readUint256(result, 0);
+        assertEq(readValue, newAmount);
+
+        // Test that trying to replace at offset 1 should revert (would exceed bounds)
+        vm.expectRevert(BungeeApproveAndBridge.PositionOutOfBounds.selector);
+        bungeeApproveAndBridge.replaceUint256(data, 1, newAmount);
+    }
+
+    function test_replaceUint256_largerPayload() public {
+        // Test with a larger payload (64 bytes)
+        bytes memory data = new bytes(64);
+        // Fill with some initial data
+        for (uint256 i = 0; i < 64; i++) {
+            data[i] = bytes1(uint8(i));
+        }
+
+        uint256 newAmount = 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef;
+
+        // Test replacement at start (offset 0)
+        (, bytes memory result) = bungeeApproveAndBridge.replaceUint256(data, 0, newAmount);
+        uint256 readValue = bungeeApproveAndBridge.readUint256(result, 0);
+        assertEq(readValue, newAmount);
+
+        // Test replacement at middle (offset 32)
+        (, result) = bungeeApproveAndBridge.replaceUint256(data, 32, newAmount);
+        readValue = bungeeApproveAndBridge.readUint256(result, 32);
+        assertEq(readValue, newAmount);
+
+        // Test that trying to replace at offset 33 should revert (would exceed bounds)
+        vm.expectRevert(BungeeApproveAndBridge.PositionOutOfBounds.selector);
+        bungeeApproveAndBridge.replaceUint256(data, 33, newAmount);
+    }
+
+    function test_replaceUint256_veryLargePayload() public {
+        // Test with a very large payload (128 bytes)
+        bytes memory data = new bytes(128);
+        // Fill with some initial data
+        for (uint256 i = 0; i < 128; i++) {
+            data[i] = bytes1(uint8(i));
+        }
+
+        uint256 newAmount = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa;
+
+        // Test replacement at start (offset 0)
+        (, bytes memory result) = bungeeApproveAndBridge.replaceUint256(data, 0, newAmount);
+        uint256 readValue = bungeeApproveAndBridge.readUint256(result, 0);
+        assertEq(readValue, newAmount);
+
+        // Test replacement at middle (offset 64)
+        (, result) = bungeeApproveAndBridge.replaceUint256(data, 64, newAmount);
+        readValue = bungeeApproveAndBridge.readUint256(result, 64);
+        assertEq(readValue, newAmount);
+
+        // Test replacement at end (offset 96)
+        (, result) = bungeeApproveAndBridge.replaceUint256(data, 96, newAmount);
+        readValue = bungeeApproveAndBridge.readUint256(result, 96);
+        assertEq(readValue, newAmount);
+
+        // Test that trying to replace at offset 97 should revert (would exceed bounds)
+        vm.expectRevert(BungeeApproveAndBridge.PositionOutOfBounds.selector);
+        bungeeApproveAndBridge.replaceUint256(data, 97, newAmount);
+    }
+
+    function test_replaceUint256_multipleReplacements() public {
+        // Test multiple replacements on the same data
+        bytes memory data = new bytes(96); // 3 * 32 bytes
+        // Fill with some initial data
+        for (uint256 i = 0; i < 96; i++) {
+            data[i] = bytes1(uint8(i));
+        }
+
+        uint256 amount1 = 0x1111111111111111111111111111111111111111111111111111111111111111;
+        uint256 amount2 = 0x2222222222222222222222222222222222222222222222222222222222222222;
+        uint256 amount3 = 0x3333333333333333333333333333333333333333333333333333333333333333;
+
+        // Replace at offset 0
+        (, bytes memory result) = bungeeApproveAndBridge.replaceUint256(data, 0, amount1);
+        assertEq(bungeeApproveAndBridge.readUint256(result, 0), amount1);
+
+        // Replace at offset 32
+        (, result) = bungeeApproveAndBridge.replaceUint256(result, 32, amount2);
+        assertEq(bungeeApproveAndBridge.readUint256(result, 0), amount1); // First value unchanged
+        assertEq(bungeeApproveAndBridge.readUint256(result, 32), amount2); // Second value changed
+
+        // Replace at offset 64
+        (, result) = bungeeApproveAndBridge.replaceUint256(result, 64, amount3);
+        assertEq(bungeeApproveAndBridge.readUint256(result, 0), amount1); // First value unchanged
+        assertEq(bungeeApproveAndBridge.readUint256(result, 32), amount2); // Second value unchanged
+        assertEq(bungeeApproveAndBridge.readUint256(result, 64), amount3); // Third value changed
+    }
+
+    function test_replaceUint256_edgeCases() public {
+        // Test edge cases with different amounts
+        bytes memory data = new bytes(64);
+        for (uint256 i = 0; i < 64; i++) {
+            data[i] = bytes1(uint8(i));
+        }
+
+        // Test with zero amount
+        (, bytes memory result) = bungeeApproveAndBridge.replaceUint256(data, 0, 0);
+        assertEq(bungeeApproveAndBridge.readUint256(result, 0), 0);
+
+        // Test with maximum uint256
+        uint256 maxUint = type(uint256).max;
+        (, result) = bungeeApproveAndBridge.replaceUint256(data, 32, maxUint);
+        assertEq(bungeeApproveAndBridge.readUint256(result, 32), maxUint);
+
+        // Test with a specific pattern
+        uint256 pattern = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+        (, result) = bungeeApproveAndBridge.replaceUint256(data, 0, pattern);
+        assertEq(bungeeApproveAndBridge.readUint256(result, 0), pattern);
+    }
+
+    function test_replaceUint256_boundsChecking() public {
+        // Test various bounds checking scenarios
+        bytes memory data = new bytes(64);
+
+        // Test with _start = 0 (valid)
+        bungeeApproveAndBridge.replaceUint256(data, 0, 123);
+
+        // Test with _start = 32 (valid)
+        bungeeApproveAndBridge.replaceUint256(data, 32, 123);
+
+        // Test with _start = 33 (invalid - would exceed bounds)
+        vm.expectRevert(BungeeApproveAndBridge.PositionOutOfBounds.selector);
+        bungeeApproveAndBridge.replaceUint256(data, 33, 123);
+
+        // Test with _start = 64 (invalid - would exceed bounds)
+        vm.expectRevert(BungeeApproveAndBridge.PositionOutOfBounds.selector);
+        bungeeApproveAndBridge.replaceUint256(data, 64, 123);
+
+        // Test with very large _start value
+        // will revert since start + 32 will overflow
+        vm.expectRevert();
+        bungeeApproveAndBridge.replaceUint256(data, type(uint256).max, 123);
+    }
+
+    function test_replaceUint256_memorySafety() public {
+        // Test memory safety by ensuring the function doesn't corrupt memory
+        bytes memory data = new bytes(96);
+
+        // Fill with a specific pattern
+        for (uint256 i = 0; i < 96; i++) {
+            data[i] = bytes1(uint8(i % 256));
+        }
+
+        uint256 newAmount = 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef;
+
+        // Replace only the middle 32 bytes
+        (, bytes memory result) = bungeeApproveAndBridge.replaceUint256(data, 32, newAmount);
+
+        // Verify that only the target location was modified
+        assertEq(bungeeApproveAndBridge.readUint256(result, 32), newAmount);
+
+        // Verify that other locations remain unchanged
+        // Check first 32 bytes are unchanged
+        for (uint256 i = 0; i < 32; i++) {
+            assertEq(result[i], data[i]);
+        }
+
+        // Check last 32 bytes are unchanged
+        for (uint256 i = 64; i < 96; i++) {
+            assertEq(result[i], data[i]);
+        }
+    }
+
+    function test_replaceUint256_inPlaceModification() public {
+        // Test that the function modifies the original data in-place
+        bytes memory data = new bytes(64);
+        for (uint256 i = 0; i < 64; i++) {
+            data[i] = bytes1(uint8(i));
+        }
+
+        uint256 originalValue = bungeeApproveAndBridge.readUint256(data, 0);
+        uint256 newAmount = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+
+        // Replace the value
+        (bytes memory original, bytes memory result) = bungeeApproveAndBridge.replaceUint256(data, 0, newAmount);
+
+        // Verify the result is the same as the original data (in-place modification)
+        assertEq(result.length, data.length);
+        assertEq(bungeeApproveAndBridge.readUint256(result, 0), newAmount);
+        // this will not modify the original data variable, but a copy of it since data is outside the scope of the function
+        assertNotEq(bungeeApproveAndBridge.readUint256(result, 0), bungeeApproveAndBridge.readUint256(data, 0));
+        // but this is returning the modified input value, so this should be the new value
+        assertEq(bungeeApproveAndBridge.readUint256(original, 0), newAmount);
     }
 }
