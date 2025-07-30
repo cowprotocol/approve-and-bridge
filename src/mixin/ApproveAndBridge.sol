@@ -13,8 +13,13 @@ abstract contract ApproveAndBridge is IApproveAndBridge {
     /// @dev Address used to represent the native token
     address public constant NATIVE_TOKEN_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
-    /// @dev This function isn't intended to be called directly, it should be
-    /// delegatecalled instead.
+    /**
+     * @dev This function isn't intended to be called directly, it should be delegatecalled instead.
+     * @param token The token to bridge
+     * @param minAmount The minimum amount of tokens to bridge. minAmount should not be too small if the sell amount is big
+     * @param nativeTokenExtraFee The extra fee to pay in native tokens
+     * @param data The data to pass to the bridge
+     */
     function approveAndBridge(IERC20 token, uint256 minAmount, uint256 nativeTokenExtraFee, bytes calldata data)
         external
     {
@@ -37,7 +42,13 @@ abstract contract ApproveAndBridge is IApproveAndBridge {
         bridge(token, balance, nativeTokenExtraFee, data);
     }
 
+    /**
+     * @dev Returns the address of the contract that should be approved to bridge the token
+     */
     function bridgeApprovalTarget() public view virtual returns (address);
 
+    /**
+     * @dev Bridges the token
+     */
     function bridge(IERC20 token, uint256 amount, uint256 nativeTokenExtraFee, bytes calldata data) internal virtual;
 }
