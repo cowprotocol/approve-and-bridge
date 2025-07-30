@@ -3,7 +3,11 @@ pragma solidity ^0.8;
 
 import {Test} from "forge-std/Test.sol";
 
-import {BungeeApproveAndBridge} from "src/BungeeApproveAndBridge.sol";
+import {IERC20} from "../src/vendored/IERC20.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockFailingBridge} from "./mocks/MockBridge.sol";
+
+import {BungeeApproveAndBridge, ApproveAndBridge} from "src/BungeeApproveAndBridge.sol";
 
 contract PublicBungeeApproveAndBridge is BungeeApproveAndBridge {
     constructor(address _socketGateway) BungeeApproveAndBridge(_socketGateway) {}
@@ -40,6 +44,10 @@ contract PublicBungeeApproveAndBridge is BungeeApproveAndBridge {
 contract BungeeApproveAndBridgeTest is Test {
     PublicBungeeApproveAndBridge public bungeeApproveAndBridge;
 
+    MockERC20 public mockToken;
+    MockFailingBridge public failingBridge;
+
+    address public constant NATIVE_TOKEN_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     address constant SOCKET_GATEWAY = 0x3a23F943181408EAC424116Af7b7790c94Cb97a5;
 
     function setUp() public {
@@ -47,10 +55,29 @@ contract BungeeApproveAndBridgeTest is Test {
         vm.etch(SOCKET_GATEWAY, bytes("Hello, World!"));
 
         bungeeApproveAndBridge = new PublicBungeeApproveAndBridge(SOCKET_GATEWAY);
+        mockToken = new MockERC20(1000e18);
+        failingBridge = new MockFailingBridge();
     }
 
     function test_constructor() public {
         assertEq(bungeeApproveAndBridge.SOCKET_GATEWAY(), SOCKET_GATEWAY);
+    }
+
+    function test_constructor_shouldRevert_nonContractAddress() public {
+        // Should revert when passing non-contract address
+        address nonContract = address(0x123);
+        vm.expectRevert("Socket gateway contract not deployed");
+        new PublicBungeeApproveAndBridge(nonContract);
+
+        // Should revert when passing address with no code
+        address emptyContract = address(0x456);
+        vm.etch(emptyContract, ""); // Empty code
+        vm.expectRevert("Socket gateway contract not deployed");
+        new PublicBungeeApproveAndBridge(emptyContract);
+    }
+
+    function test_bridgeApprovalTarget() public {
+        assertEq(bungeeApproveAndBridge.bridgeApprovalTarget(), SOCKET_GATEWAY);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -868,5 +895,300 @@ contract BungeeApproveAndBridgeTest is Test {
         bytes memory data = hex"12345678";
         vm.expectRevert(BungeeApproveAndBridge.InvalidInput.selector);
         bungeeApproveAndBridge.parseAndModifyCalldata(100, data);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        INSUFFICIENT BALANCE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_insufficientBalance_ERC20() public {
+        // Give test contract some tokens but not enough
+        mockToken.mint(address(bungeeApproveAndBridge), 100e18);
+
+        uint256 minAmount = 200e18; // More than available balance
+
+        vm.expectRevert(ApproveAndBridge.MinAmountNotMet.selector);
+        bungeeApproveAndBridge.approveAndBridge(IERC20(mockToken), minAmount, 0, hex"");
+    }
+
+    function test_insufficientBalance_nativeToken() public {
+        // Give test contract some ETH but not enough
+        vm.deal(address(bungeeApproveAndBridge), 1e18);
+
+        uint256 minAmount = 2e18; // More than available balance
+
+        vm.expectRevert(ApproveAndBridge.MinAmountNotMet.selector);
+        bungeeApproveAndBridge.approveAndBridge(IERC20(NATIVE_TOKEN_ADDRESS), minAmount, 0, hex"");
+    }
+
+    function test_insufficientBalance_withExtraFee() public {
+        // Give test contract exactly the min amount but with extra fee
+        uint256 minAmount = 1e18;
+        uint256 nativeTokenExtraFee = 0.1e18;
+        vm.deal(address(bungeeApproveAndBridge), minAmount + nativeTokenExtraFee - 0.01e18); // Slightly less than needed
+
+        vm.expectRevert(ApproveAndBridge.MinAmountNotMet.selector);
+        bungeeApproveAndBridge.approveAndBridge(IERC20(NATIVE_TOKEN_ADDRESS), minAmount, nativeTokenExtraFee, hex"");
+    }
+
+    function test_zeroBalance_ERC20() public {
+        // Test contract has no tokens
+        uint256 minAmount = 1e18;
+        bytes memory routeId = hex"12345678";
+
+        vm.expectRevert(ApproveAndBridge.MinAmountNotMet.selector);
+        bungeeApproveAndBridge.approveAndBridge(IERC20(mockToken), minAmount, 0, hex"");
+    }
+
+    function test_zeroBalance_nativeToken() public {
+        // Test contract has no ETH
+        uint256 minAmount = 1e18;
+
+        vm.expectRevert(ApproveAndBridge.MinAmountNotMet.selector);
+        bungeeApproveAndBridge.approveAndBridge(IERC20(NATIVE_TOKEN_ADDRESS), minAmount, 0, hex"");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        FAILED BRIDGE CALL TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_failedBridgeCall_ERC20() public {
+        // Create a new bridge contract with failing gateway
+        PublicBungeeApproveAndBridge failingBridgeApproveAndBridgeContract =
+            new PublicBungeeApproveAndBridge(address(failingBridge));
+
+        // Give test contract enough tokens
+        mockToken.mint(address(failingBridgeApproveAndBridgeContract), 100e18);
+
+        uint256 minAmount = 50e18;
+        uint256 nativeTokenExtraFee = 0;
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(50e18));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        vm.expectRevert(BungeeApproveAndBridge.BridgeFailed.selector);
+        failingBridgeApproveAndBridgeContract.approveAndBridge(IERC20(mockToken), minAmount, nativeTokenExtraFee, data);
+    }
+
+    function test_failedBridgeCall_nativeToken() public {
+        // Create a new bridge contract with failing gateway
+        PublicBungeeApproveAndBridge failingBridgeApproveAndBridgeContract =
+            new PublicBungeeApproveAndBridge(address(failingBridge));
+
+        // Give test contract enough ETH
+        vm.deal(address(failingBridgeApproveAndBridgeContract), 2e18);
+
+        uint256 minAmount = 1e18;
+        uint256 nativeTokenExtraFee = 0.1e18;
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(1e18));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        vm.expectRevert(BungeeApproveAndBridge.BridgeFailed.selector);
+        failingBridgeApproveAndBridgeContract.approveAndBridge(
+            IERC20(NATIVE_TOKEN_ADDRESS), minAmount, nativeTokenExtraFee, data
+        );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        EDGE CASES - ZERO AMOUNTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_zeroMinAmount_ERC20() public {
+        // Give test contract some tokens
+        mockToken.mint(address(bungeeApproveAndBridge), 100e18);
+
+        uint256 minAmount = 0; // Zero minimum amount
+        uint256 nativeTokenExtraFee = 0;
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(50e18));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Should succeed with zero min amount
+        bungeeApproveAndBridge.approveAndBridge(IERC20(mockToken), minAmount, nativeTokenExtraFee, data);
+
+        // Should succeed with zero min amount
+        bungeeApproveAndBridge.approveAndBridge(IERC20(NATIVE_TOKEN_ADDRESS), minAmount, nativeTokenExtraFee, data);
+    }
+
+    function test_zeroBalance_zeroMinAmount() public {
+        // Test contract has no tokens but zero min amount
+        uint256 minAmount = 0;
+        uint256 nativeTokenExtraFee = 0;
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(0));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Will succeed with zero min amount and zero balance
+        bungeeApproveAndBridge.approveAndBridge(IERC20(mockToken), minAmount, nativeTokenExtraFee, data);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        EDGE CASES - EXACT MINIMUM AMOUNTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_exactMinimumAmount_ERC20() public {
+        // Give test contract exactly the minimum amount
+        uint256 minAmount = 50e18;
+        mockToken.mint(address(bungeeApproveAndBridge), minAmount);
+
+        uint256 nativeTokenExtraFee = 0;
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(minAmount));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Should succeed with exact minimum amount
+        bungeeApproveAndBridge.approveAndBridge(IERC20(mockToken), minAmount, nativeTokenExtraFee, data);
+    }
+
+    function test_exactMinimumAmount_nativeToken() public {
+        // Give test contract exactly the minimum amount plus extra fee
+        uint256 minAmount = 1e18;
+        uint256 nativeTokenExtraFee = 0.1e18;
+        vm.deal(address(bungeeApproveAndBridge), minAmount + nativeTokenExtraFee);
+
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(minAmount));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Should succeed with exact minimum amount
+        bungeeApproveAndBridge.approveAndBridge(IERC20(NATIVE_TOKEN_ADDRESS), minAmount, nativeTokenExtraFee, data);
+    }
+
+    function test_exactMinimumAmount_withExtraFee() public {
+        // Give test contract exactly the minimum amount plus extra fee
+        uint256 minAmount = 1e18;
+        uint256 nativeTokenExtraFee = 0.1e18;
+        vm.deal(address(bungeeApproveAndBridge), minAmount + nativeTokenExtraFee);
+
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(minAmount));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Should succeed with exact minimum amount plus extra fee
+        bungeeApproveAndBridge.approveAndBridge(IERC20(NATIVE_TOKEN_ADDRESS), minAmount, nativeTokenExtraFee, data);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        EDGE CASES - LARGE AMOUNTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_largeAmount_ERC20() public {
+        // Test with very large amounts
+        uint256 largeAmount = type(uint256).max / 2;
+        mockToken.mint(address(bungeeApproveAndBridge), largeAmount);
+
+        uint256 minAmount = largeAmount;
+        uint256 nativeTokenExtraFee = 0;
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(largeAmount));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Should succeed with large amount
+        bungeeApproveAndBridge.approveAndBridge(IERC20(mockToken), minAmount, nativeTokenExtraFee, data);
+    }
+
+    function test_largeAmount_nativeToken() public {
+        // Test with very large amounts (but not max to avoid overflow)
+        uint256 largeAmount = 1e20; // 100 ETH
+        vm.deal(address(bungeeApproveAndBridge), largeAmount);
+
+        uint256 minAmount = largeAmount;
+        uint256 nativeTokenExtraFee = 0;
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(largeAmount));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Should succeed with large amount
+        bungeeApproveAndBridge.approveAndBridge(IERC20(NATIVE_TOKEN_ADDRESS), minAmount, nativeTokenExtraFee, data);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        EDGE CASES - MAXIMUM VALUES
+    //////////////////////////////////////////////////////////////*/
+
+    function test_maxUint256_minAmount() public {
+        // Test with maximum uint256 as min amount
+        MockERC20 newToken = new MockERC20(0);
+        uint256 maxAmount = type(uint256).max;
+        newToken.mint(address(bungeeApproveAndBridge), maxAmount);
+
+        uint256 minAmount = maxAmount;
+        uint256 nativeTokenExtraFee = 0;
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(maxAmount));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Should succeed with maximum amount
+        bungeeApproveAndBridge.approveAndBridge(IERC20(newToken), minAmount, nativeTokenExtraFee, data);
+    }
+
+    function test_maxUint256_extraFee() public {
+        // Test with maximum uint256 as extra fee
+        uint256 minAmount = 1e18;
+        uint256 nativeTokenExtraFee = type(uint256).max - 1e18;
+        vm.deal(address(bungeeApproveAndBridge), minAmount + nativeTokenExtraFee);
+
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(minAmount));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Should succeed with maximum extra fee
+        bungeeApproveAndBridge.approveAndBridge(IERC20(NATIVE_TOKEN_ADDRESS), minAmount, nativeTokenExtraFee, data);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        EDGE CASES - APPROVAL BEHAVIOR
+    //////////////////////////////////////////////////////////////*/
+
+    function test_approval_calledForERC20() public {
+        // Give test contract tokens
+        mockToken.mint(address(bungeeApproveAndBridge), 100e18);
+
+        uint256 minAmount = 50e18;
+        uint256 nativeTokenExtraFee = 0;
+        bytes memory routeId = hex"12345678";
+        uint256 inputAmountIdx = 4;
+        bool modifyOutput = false;
+        uint256 outputAmountIdx = 0;
+        bytes memory routeCalldata = abi.encodePacked(routeId, uint256(50e18));
+        bytes memory data = abi.encodePacked(routeCalldata, abi.encode(inputAmountIdx, modifyOutput, outputAmountIdx));
+
+        // Should succeed and call approval for ERC20 token
+        vm.expectCall(address(mockToken), abi.encodeCall(IERC20.approve, (address(SOCKET_GATEWAY), 100e18)));
+        bungeeApproveAndBridge.approveAndBridge(IERC20(mockToken), minAmount, nativeTokenExtraFee, data);
     }
 }
