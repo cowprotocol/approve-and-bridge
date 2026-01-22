@@ -39,12 +39,15 @@ abstract contract ApproveAndBridge is IApproveAndBridge {
             uint256 current = token.allowance(address(this), target);
             if (current < balance) {
                 // Try direct approval first to bypass zero-intolerant reverts
-                (bool success, ) = address(token).call(
+                (bool success, bytes memory returnData) = address(token).call(
                     abi.encodeWithSelector(IERC20.approve.selector, target, balance)
                 );
 
+                // Success if call didn't revert and (no return data or true boolean)
+                bool approved = success && (returnData.length == 0 || abi.decode(returnData, (bool)));
+
                 // Fallback to forceApprove if direct fails (e.g. USDT)
-                if (!success) {
+                if (!approved) {
                     token.forceApprove(target, balance);
                 }
             }
