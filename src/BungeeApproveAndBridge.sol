@@ -98,9 +98,7 @@ contract BungeeApproveAndBridge is ApproveAndBridge {
             uint256 originalOutput = _readUint256({_data: routeCalldata, _index: modifyCalldataParams.outputAmountIdx});
             uint256 newOutput = _applyPctDiff({_base: originalInput, _compare: amount, _target: originalOutput});
             modifiedCalldata = _replaceUint256({
-                _original: modifiedCalldata,
-                _start: modifyCalldataParams.outputAmountIdx,
-                _amount: newOutput
+                _original: modifiedCalldata, _start: modifyCalldataParams.outputAmountIdx, _amount: newOutput
             });
         }
 

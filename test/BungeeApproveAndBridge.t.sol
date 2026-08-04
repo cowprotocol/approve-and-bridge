@@ -267,9 +267,7 @@ contract BungeeApproveAndBridgeTest is Test {
         // Final: (maxUint * maxUint) / maxUint = maxUint (valid)
         assertEq(
             bungeeApproveAndBridge.applyPctDiff({
-                _base: type(uint256).max,
-                _compare: type(uint256).max,
-                _target: type(uint256).max
+                _base: type(uint256).max, _compare: type(uint256).max, _target: type(uint256).max
             }),
             type(uint256).max
         );
