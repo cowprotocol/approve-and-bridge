@@ -92,7 +92,9 @@ contract E2EBungeeApproveAndBridgeTest is Test {
         calls[0] = COWShed.Call({
             target: address(approveAndBridge),
             value: 0,
-            callData: abi.encodeCall(IApproveAndBridge.approveAndBridge, (USDC, minProceeds, additionalValue, _calldata)),
+            callData: abi.encodeCall(
+                IApproveAndBridge.approveAndBridge, (USDC, minProceeds, additionalValue, _calldata)
+            ),
             allowFailure: false,
             isDelegateCall: true
         });
@@ -143,7 +145,8 @@ contract E2EBungeeApproveAndBridgeTest is Test {
             target: address(approveAndBridge),
             value: 0,
             callData: abi.encodeCall(
-                IApproveAndBridge.approveAndBridge, (IERC20(NATIVE_TOKEN_ADDRESS), minProceeds, additionalValue, _calldata)
+                IApproveAndBridge.approveAndBridge,
+                (IERC20(NATIVE_TOKEN_ADDRESS), minProceeds, additionalValue, _calldata)
             ),
             allowFailure: false,
             isDelegateCall: true
@@ -195,7 +198,9 @@ contract E2EBungeeApproveAndBridgeTest is Test {
         calls[0] = COWShed.Call({
             target: address(approveAndBridge),
             value: 0,
-            callData: abi.encodeCall(IApproveAndBridge.approveAndBridge, (USDC, minProceeds, additionalValue, _calldata)),
+            callData: abi.encodeCall(
+                IApproveAndBridge.approveAndBridge, (USDC, minProceeds, additionalValue, _calldata)
+            ),
             allowFailure: false,
             isDelegateCall: true
         });
