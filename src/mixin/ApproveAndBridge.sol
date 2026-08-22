@@ -23,6 +23,7 @@ abstract contract ApproveAndBridge is IApproveAndBridge {
     function approveAndBridge(IERC20 token, uint256 minAmount, uint256 nativeTokenExtraFee, bytes calldata data)
         external
     {
+        address target = bridgeApprovalTarget();
         // get the balance of the token
         uint256 balance = address(token) == NATIVE_TOKEN_ADDRESS
             // if native token, reduce the extra fee from balance
@@ -35,11 +36,34 @@ abstract contract ApproveAndBridge is IApproveAndBridge {
 
         // approve the bridgeApprovalTarget if ERC20
         if (address(token) != NATIVE_TOKEN_ADDRESS) {
-            token.forceApprove(bridgeApprovalTarget(), balance);
+            uint256 current = token.allowance(address(this), target);
+            if (current < balance) {
+                // Try direct approval first to bypass zero-intolerant reverts
+                (bool success, bytes memory returnData) = address(token).call(
+                    abi.encodeWithSelector(IERC20.approve.selector, target, balance)
+                );
+
+                // Success if call didn't revert and (no return data or true boolean)
+                bool approved = success && (returnData.length == 0 || abi.decode(returnData, (bool)));
+
+                // Fallback to forceApprove if direct fails (e.g. USDT)
+                if (!approved) {
+                    token.forceApprove(target, balance);
+                }
+            }
         }
 
         // bridge the token
         bridge(token, balance, nativeTokenExtraFee, data);
+
+        // POST-BRIDGE: Conditional Silent Cleanup
+        if (address(token) != NATIVE_TOKEN_ADDRESS) {
+            if (token.allowance(address(this), target) > 0) {
+                (bool success, ) = address(token).call(abi.encodeWithSelector(IERC20.approve.selector, target, 0));
+                success;
+            }
+            
+        }
     }
 
     /**
